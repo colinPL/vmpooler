@@ -6,11 +6,7 @@ module Vmpooler
 
     helpers do
       def get_capacity_metrics()
-        capacity = {
-          current: 0,
-          total: 0,
-          percent: 0
-        }
+        capacity = CapacityMetric.new
 
         $config[:pools].each do |pool|
           pool['capacity'] = $redis.scard('vmpooler__ready__' + pool['name']).to_i
@@ -19,23 +15,13 @@ module Vmpooler
           capacity[:total] += pool['size'].to_i
         end
 
-        if capacity[:total] > 0
-          capacity[:percent] = ((capacity[:current].to_f / capacity[:total].to_f) * 100.0).round(1)
-        end
+        capacity.calc_average
 
         capacity
       end
 
       def get_queue_metrics()
-        queue = {
-          pending: 0,
-          cloning: 0,
-          booting: 0,
-          ready: 0,
-          running: 0,
-          completed: 0,
-          total: 0
-        }
+        queue = QueueMetric.new
 
         $config[:pools].each do |pool|
           queue[:pending] += $redis.scard('vmpooler__pending__' + pool['name']).to_i
@@ -56,12 +42,7 @@ module Vmpooler
         opts = { :bypool => false }.merge(opts)
 
         task = {
-          duration: {
-            average: 0,
-            min: 0,
-            max: 0,
-            total: 0
-          },
+          duration: TaskDuration.new,
           count: {
             total: 0
           }
@@ -74,7 +55,8 @@ module Vmpooler
             task_times_bypool = {}
 
             task[:count][:pool] = {}
-            task[:duration][:pool] = {}
+            # task[:duration][:pool] = {}
+            task[:duration].add_pool
 
             $redis.hkeys('vmpooler__' + task_str + '__' + date_str).each do |key|
               pool = 'unknown'
@@ -94,19 +76,15 @@ module Vmpooler
             end
 
             task_times_bypool.each_key do |pool|
-              task[:count][:pool][pool][:total] = task_times_bypool[pool].length
-
-              task[:duration][:pool][pool][:total] = task_times_bypool[pool].reduce(:+).to_f
-              task[:duration][:pool][pool][:average] = (task[:duration][:pool][pool][:total] / task[:count][:pool][pool][:total]).round(1)
-              task[:duration][:pool][pool][:min], task[:duration][:pool][pool][:max] = task_times_bypool[pool].minmax
+              pool_stats = PoolStats.new(pool, task_times_bypool[pool])
+              task[:count][:pool][pool] = pool_stats.count
+              task[:duration][:pool][pool] = pool_stats.duration
             end
           end
 
+          # get list of durations and then process duration stats
           task_times = get_task_times(task_str, date_str)
-
-          task[:duration][:total] = task_times.reduce(:+).to_f
-          task[:duration][:average] = (task[:duration][:total] / task[:count][:total]).round(1)
-          task[:duration][:min], task[:duration][:max] = task_times.minmax
+          task[:duration].parse(task_times)
         end
 
         task
@@ -170,13 +148,7 @@ module Vmpooler
 
       result = {
         boot: {
-          duration: {
-            average: 0,
-            min: 0,
-            max: 0,
-            total: 0,
-            pool: {}
-          },
+          duration: TaskDuration.new(true),
           count: {
             average: 0,
             min: 0,
@@ -186,13 +158,7 @@ module Vmpooler
           }
         },
         clone: {
-          duration: {
-            average: 0,
-            min: 0,
-            max: 0,
-            total: 0,
-            pool: {}
-          },
+          duration: TaskDuration.new(true),
           count: {
             average: 0,
             min: 0,

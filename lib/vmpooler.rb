@@ -11,7 +11,7 @@ module Vmpooler
   require 'timeout'
   require 'yaml'
 
-  %w( api graphite logger pool_manager vsphere_helper ).each do |lib|
+  %w( api graphite logger pool_manager vsphere_helper models ).each do |lib|
     begin
       require "vmpooler/#{lib}"
     rescue LoadError
